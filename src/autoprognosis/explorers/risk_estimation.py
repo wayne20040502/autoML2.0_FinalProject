@@ -1,7 +1,7 @@
 # stdlib
 import time
 import traceback
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -101,7 +101,7 @@ class RiskEstimatorSeeker:
     def __init__(
         self,
         study_name: str,
-        time_horizons: List[int],
+        time_horizons: Union[List[Union[float, int]], np.ndarray],
         num_iter: int = 50,
         timeout: int = 360,
         n_folds_cv: int = 5,
@@ -149,7 +149,7 @@ class RiskEstimatorSeeker:
         X: pd.DataFrame,
         T: pd.DataFrame,
         Y: pd.DataFrame,
-        time_horizon: int,
+        time_horizon: Union[int, float],
         group_ids: Optional[pd.Series] = None,
     ) -> Tuple[List[float], List[float]]:
         self._should_continue()
@@ -210,7 +210,7 @@ class RiskEstimatorSeeker:
         X: pd.DataFrame,
         T: pd.Series,
         Y: pd.Series,
-        time_horizon: int,
+        time_horizon: Union[int, float],
         group_ids: Optional[pd.Series] = None,
     ) -> List:
         self._should_continue()

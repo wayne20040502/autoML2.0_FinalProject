@@ -1,7 +1,7 @@
 # stdlib
 import copy
 import time
-from typing import List, Optional
+from typing import List, Optional, Union
 
 # third party
 import numpy as np
@@ -100,7 +100,7 @@ class RiskEnsembleSeeker:
     def __init__(
         self,
         study_name: str,
-        time_horizons: List[int],
+        time_horizons: Union[List[Union[float, int]], np.ndarray],
         num_iter: int = 50,
         num_ensemble_iter: int = 100,
         timeout: int = 360,
@@ -154,7 +154,7 @@ class RiskEnsembleSeeker:
         X: pd.DataFrame,
         T: pd.DataFrame,
         Y: pd.DataFrame,
-        time_horizon: int,
+        time_horizon: Union[int, float],
         seed: int = 0,
         group_ids: Optional[str] = None,
     ) -> List:
@@ -190,7 +190,7 @@ class RiskEnsembleSeeker:
         X: pd.DataFrame,
         T: pd.DataFrame,
         Y: pd.DataFrame,
-        time_horizon: int,
+        time_horizon: Union[int, float],
         skip_recap: bool = False,
         group_ids: Optional[pd.Series] = None,
     ) -> List[float]:
