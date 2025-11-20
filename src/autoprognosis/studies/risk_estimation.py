@@ -146,7 +146,7 @@ class RiskEstimationStudy(Study):
         dataset: pd.DataFrame,
         target: str,
         time_to_event: str,
-        time_horizons: List[int],
+        time_horizons: Union[List[Union[float, int]], np.ndarray],
         num_iter: int = 20,
         num_study_iter: int = 5,
         num_ensemble_iter: int = 15,
