@@ -1,94 +1,257 @@
 # stdlib
-from typing import Any, Callable, List, Tuple
+import copy
+import warnings
+import sys
+from typing import Any, Callable, List, Optional, Tuple
 
 # third party
+import numpy as np
+import optuna
 from pydantic import validate_arguments
 
 # autoprognosis absolute
-from autoprognosis.explorers.core.optimizers.bayesian import BayesianOptimizer
-from autoprognosis.explorers.core.optimizers.hyperband import HyperbandOptimizer
+import autoprognosis.logger as log
+from autoprognosis.utils.redis import RedisBackend
 
+threshold = 100
+EPS = 1e-8
 
-class Optimizer:
-    def __init__(
-        self,
-        study_name: str,
-        estimator: Any,
-        evaluation_cbk: Callable,
-        optimizer_type: str = "bayesian",
-        n_trials: int = 50,  # bayesian: number of trials
-        timeout: int = 60,  # bayesian: timeout per search
-        eta: int = 3,  # hyperband: defines configuration downsampling rate (default = 3)
-        random_state: int = 0,
-    ):
-        if optimizer_type not in ["bayesian", "hyperband"]:
-            raise RuntimeError(f"Invalid optimizer type {optimizer_type}")
+warnings.filterwarnings("ignore")
 
-        if optimizer_type == "bayesian":
-            self.optimizer = BayesianOptimizer(
-                study_name=study_name,
-                estimator=estimator,
-                evaluation_cbk=evaluation_cbk,
-                n_trials=n_trials,
-                timeout=timeout,
-                random_state=random_state,
-            )
-        elif optimizer_type == "hyperband":
-            self.optimizer = HyperbandOptimizer(
-                study_name=study_name,
-                estimator=estimator,
-                evaluation_cbk=evaluation_cbk,
-                max_iter=n_trials,
-                eta=eta,
-                random_state=random_state,
-            )
+class EarlyStoppingExceeded(optuna.exceptions.OptunaError):
+    pass
 
-    @validate_arguments(config=dict(arbitrary_types_allowed=True))
-    def evaluate(
-        self,
-    ) -> Tuple[List[float], List[dict]]:
-        return self.optimizer.evaluate()
+class ParamRepeatPruner:
+    """Prunes reapeated trials."""
+    def __init__(self, study: optuna.study.Study, patience: int) -> None:
+        self.study = study
+        self.seen: set = set()
+        self.best_score: float = -1
+        self.no_improvement_for = 0
+        self.patience = patience
+        if self.study is not None:
+            self.register_existing_trials()
+
+    def register_existing_trials(self) -> None:
+        for trial_idx, trial_past in enumerate(
+            self.study.get_trials(states=[optuna.trial.TrialState.COMPLETE])
+        ):
+            if trial_past.values[0] > self.best_score:
+                self.best_score = trial_past.values[0]
+                self.no_improvement_for = 0
+            else:
+                self.no_improvement_for += 1
+            self.seen.add(hash(frozenset(trial_past.params.items())))
+
+    def check_patience(self, trial: optuna.trial.Trial) -> None:
+        if self.no_improvement_for > self.patience:
+            raise EarlyStoppingExceeded()
+
+    def check_trial(self, trial: optuna.trial.Trial) -> None:
+        self.check_patience(trial)
+        params = frozenset(trial.params.items())
+        current_val = hash(params)
+        if current_val in self.seen:
+            raise optuna.exceptions.TrialPruned()
+        self.seen.add(current_val)
+
+    def report_score(self, score: float) -> None:
+        if score > self.best_score:
+            self.best_score = score
+            self.no_improvement_for = 0
+        else:
+            self.no_improvement_for += 1
 
 
 class EnsembleOptimizer:
+    """Optimization helper based on Optuna (Supports Bayesian & Hyperband)."""
+
+    @validate_arguments(config=dict(arbitrary_types_allowed=True))
     def __init__(
         self,
         study_name: str,
-        ensemble_len: int,
         evaluation_cbk: Callable,
-        optimizer_type: str = "bayesian",
-        n_trials: int = 50,  # bayesian: number of trials
-        timeout: int = 60,  # bayesian: timeout per search
-        max_iter: int = 27,  # hyperband: maximum iterations per configuration
-        eta: int = 3,  # hyperband: defines configuration downsampling rate (default = 3)
+        estimator: Any = None,
+        ensemble_len: Optional[int] = None,
+        n_trials: int = 50,
+        timeout: int = 60,
         skip_recap: bool = False,
         random_state: int = 0,
+        optimizer_type: str = "bayesian", 
     ):
-        if optimizer_type not in ["bayesian", "hyperband"]:
-            raise RuntimeError(f"Invalid optimizer type {optimizer_type}")
+        self.study_name = study_name
+        self.estimator = estimator
+        self.ensemble_len = ensemble_len
+        self.evaluation_cbk = evaluation_cbk
+        self.n_trials = n_trials
+        self.timeout = timeout
+        self.skip_recap = skip_recap
+        self.random_state = random_state
+        self.optimizer_type = optimizer_type
 
-        if optimizer_type == "bayesian":
-            self.optimizer = BayesianOptimizer(
-                study_name=study_name,
-                ensemble_len=ensemble_len,
-                evaluation_cbk=evaluation_cbk,
-                n_trials=n_trials,
-                timeout=timeout,
-                skip_recap=skip_recap,
-                random_state=random_state,
+    def create_study(
+        self,
+        study_name: str,
+        direction: str = "maximize",
+        load_if_exists: bool = True,
+        storage_type: str = "redis",
+        patience: int = threshold,
+    ) -> Tuple[optuna.Study, ParamRepeatPruner]:
+
+        storage_obj = None
+        if storage_type == "redis":
+            try:
+                backend = RedisBackend()
+                storage_obj = backend.optuna()
+            except BaseException:
+                storage_obj = None
+
+        sampler = optuna.samplers.TPESampler(seed=self.random_state)
+        
+        if self.optimizer_type == "hyperband":
+            pruner = optuna.pruners.HyperbandPruner(
+                min_resource=1, 
+                max_resource=self.n_trials, 
+                reduction_factor=3
             )
-        elif optimizer_type == "hyperband":
-            self.optimizer = HyperbandOptimizer(
+        else:
+            pruner = optuna.pruners.MedianPruner()
+
+        optuna.logging.set_verbosity(optuna.logging.ERROR)
+
+        try:
+            study = optuna.create_study(
+                direction=direction,
                 study_name=study_name,
-                ensemble_len=ensemble_len,
-                evaluation_cbk=evaluation_cbk,
-                max_iter=max_iter,
-                eta=eta,
-                random_state=random_state,
+                storage=storage_obj,
+                load_if_exists=load_if_exists,
+                sampler=sampler,
+                pruner=pruner,
             )
+        except BaseException as e:
+            study = optuna.create_study(
+                direction=direction,
+                study_name=study_name,
+                sampler=sampler,
+                pruner=pruner,
+            )
+
+        return study, ParamRepeatPruner(study, patience=patience)
 
     @validate_arguments(config=dict(arbitrary_types_allowed=True))
-    def evaluate(
-        self,
-    ) -> Tuple[float, dict]:
-        return self.optimizer.evaluate_ensemble()
+    def evaluate(self) -> Tuple[List[float], List[dict]]:
+        if self.estimator is None:
+            raise ValueError("Invalid estimator")
+        study, pruner = self.create_study(study_name=self.study_name)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            baseline_score = self.evaluation_cbk()
+        
+        pruner.report_score(baseline_score)
+
+        if len(self.estimator.hyperparameter_space()) == 0:
+            return [baseline_score], [{}]
+
+        def objective(trial: optuna.Trial) -> float:
+            args = self.estimator.sample_hyperparameters(trial)
+            pruner.check_trial(trial)
+            
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                score = self.evaluation_cbk(**args)
+
+            pruner.report_score(score)
+            
+            trial.report(score, step=1) 
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
+            
+            # =========================================================
+            # [重點] 這裡一定要有這段 Print 參數的程式碼
+            # =========================================================
+            try:
+                best_so_far = study.best_value
+                if score > best_so_far:
+                    best_so_far = score
+                    marker = "🔥 NEW BEST!"
+                else:
+                    marker = ""
+            except ValueError:
+                best_so_far = score
+                marker = "🔥 NEW BEST!"
+
+            # 把參數轉成字串
+            param_str = ", ".join([f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}" for k, v in args.items()])
+
+            algo_name = self.estimator.name()
+            
+            # 印出分數
+            print(f"[{algo_name:<15}] Trial {trial.number:<3} | Score: {score:.4f} | Best: {best_so_far:.4f} {marker}")
+            
+            # [關鍵] 印出參數 (我加了 >>>> 讓你確認是新版本)
+            print(f"    >>>> Params: {param_str}")
+            # =========================================================
+
+            return score
+
+        try:
+            study.optimize(objective, n_trials=self.n_trials, timeout=self.timeout)
+        except EarlyStoppingExceeded:
+            pass
+
+        scores = [baseline_score]
+        params = [{}]
+        for trial_idx, trial_past in enumerate(
+            study.get_trials(states=[optuna.trial.TrialState.COMPLETE])
+        ):
+            scores.append(trial_past.values[0])
+            params.append(trial_past.params)
+
+        return scores, params
+
+    @validate_arguments(config=dict(arbitrary_types_allowed=True))
+    def evaluate_ensemble(self) -> Tuple[float, dict]:
+        if self.ensemble_len is None:
+            raise ValueError("Invalid ensemble len")
+
+        study, pruner = self.create_study(
+            study_name=self.study_name, load_if_exists=False, storage_type="none"
+        )
+
+        def objective(trial: optuna.Trial) -> float:
+            weights = [
+                trial.suggest_int(f"weight_{idx}", 0, 10)
+                for idx in range(self.ensemble_len)
+            ]
+            pruner.check_trial(trial)
+            weights = weights / (np.sum(weights) + EPS)
+            
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                score = self.evaluation_cbk(weights)
+                
+            pruner.report_score(score)
+            return score
+
+        if not self.skip_recap:
+            initial_trials = []
+            trial_template = {}
+            for idx in range(self.ensemble_len):
+                trial_template[f"weight_{idx}"] = 0
+            for idx in range(self.ensemble_len):
+                local_trial = copy.deepcopy(trial_template)
+                local_trial[f"weight_{idx}"] = 1
+                initial_trials.append(local_trial)
+            for trial in initial_trials:
+                study.enqueue_trial(trial)
+
+        try:
+            study.optimize(objective, n_trials=self.n_trials, timeout=self.timeout)
+        except EarlyStoppingExceeded:
+            pass
+
+        return study.best_value, study.best_trial.params
+
+BayesianOptimizer = EnsembleOptimizer
+Optimizer = EnsembleOptimizer
