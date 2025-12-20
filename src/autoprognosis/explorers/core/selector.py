@@ -264,6 +264,10 @@ class PipelineSelector:
             selected = Preprocessors(category="dimensionality_reduction").get_type(idx)
             model_list.append(selected.fqdn())
             add_stage_hp(selected)
+        elif len(self.feature_selection) > 0:
+            selected = self.feature_selection[0]
+            model_list.append(selected.fqdn())
+            add_stage_hp(selected)
 
         pre_key = self._generate_dist_name("feature_scaling_candidate")
         if pre_key in kwargs:

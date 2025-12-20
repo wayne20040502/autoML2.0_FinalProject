@@ -3,6 +3,7 @@ from typing import Any, List, Optional
 
 # third party
 import pandas as pd
+from inspect import signature
 from sklearn.linear_model import LogisticRegression
 
 # autoprognosis absolute
@@ -75,16 +76,21 @@ class LogisticRegressionPlugin(base.ClassifierPlugin):
         if hyperparam_search_iterations:
             max_iter = int(hyperparam_search_iterations) * 100
 
-        model = LogisticRegression(
-            C=C,
-            solver=LogisticRegressionPlugin.solvers[solver],
-            multi_class=LogisticRegressionPlugin.classes[multi_class],
-            class_weight=LogisticRegressionPlugin.weights[class_weight],
-            penalty=penalty,
-            max_iter=max_iter,
-            random_state=random_state,
-            n_jobs=n_jobs,
-        )
+        init_params = {
+            "C": C,
+            "solver": LogisticRegressionPlugin.solvers[solver],
+            "class_weight": LogisticRegressionPlugin.weights[class_weight],
+            "penalty": penalty,
+            "max_iter": max_iter,
+            "random_state": random_state,
+            "n_jobs": n_jobs,
+        }
+
+        lr_signature = signature(LogisticRegression.__init__).parameters
+        if "multi_class" in lr_signature:
+            init_params["multi_class"] = LogisticRegressionPlugin.classes[multi_class]
+
+        model = LogisticRegression(**init_params)
         self.model = calibrated_model(model, calibration)
 
     @staticmethod
