@@ -37,8 +37,6 @@ class RandomForestPlugin(base.ClassifierPlugin):
         random_state: int, default 0
             Random seed
 
-
-
     Example:
         >>> from autoprognosis.plugins.prediction import Predictions
         >>> plugin = Predictions(category="classifiers").get("random_forest")
@@ -91,8 +89,15 @@ class RandomForestPlugin(base.ClassifierPlugin):
     def hyperparameter_space(*args: Any, **kwargs: Any) -> List[params.Params]:
         return [
             params.Integer("criterion", 0, len(RandomForestPlugin.criterions) - 1),
-            params.Integer("n_estimators", 100, 10000),
-            params.Integer("max_depth", 1, 7),
+            
+            # ============================================================
+            # [重要修改] 將原本的 10000 降為 1000
+            # ============================================================
+            params.Integer("n_estimators", 100, 1000),
+            
+            # 隨機森林稍微深一點沒關係，可以設到 10 (原作者設 7)
+            params.Integer("max_depth", 1, 10),
+            
             params.Categorical("min_samples_split", [2, 5, 10]),
             params.Categorical("bootstrap", [True, False]),
             params.Categorical("min_samples_leaf", [2, 5, 10]),

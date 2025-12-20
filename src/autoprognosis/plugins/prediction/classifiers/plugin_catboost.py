@@ -89,8 +89,14 @@ class CatBoostPlugin(base.ClassifierPlugin):
     @staticmethod
     def hyperparameter_space(*args: Any, **kwargs: Any) -> List[params.Params]:
         return [
+            # [修改] 深度保持在 7 以內，避免太深算太久
             params.Integer("depth", 1, 7),
-            params.Integer("n_estimators", 10, 10000),
+            
+            # ============================================================
+            # [重要修改] CatBoost 預設跑到 10000 太久，限制在 1000
+            # ============================================================
+            params.Integer("n_estimators", 10, 1000),
+            
             params.Float("learning_rate", 1e-2, 4e-2),
             params.Integer("grow_policy", 0, len(CatBoostPlugin.grow_policies) - 1),
             params.Float("l2_leaf_reg", 1e-4, 1e3),

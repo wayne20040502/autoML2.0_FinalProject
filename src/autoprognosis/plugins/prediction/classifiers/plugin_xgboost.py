@@ -129,7 +129,11 @@ class XGBoostPlugin(base.ClassifierPlugin):
         return [
             params.Integer("max_depth", 1, 7),
             params.Float("learning_rate", 1e-3, 0.3),
-            params.Integer("n_estimators", 10, 10000),
+            # ============================================================
+            # [重要修改] 將原本的 10000 降為 1000，避免跑一輩子
+            # ============================================================
+            params.Integer("n_estimators", 10, 1000), 
+            
             params.Float("colsample_bytree", 0.1, 0.5),
             params.Float("gamma", 0, 1),
             params.Float("subsample", 0.5, 1),
