@@ -13,7 +13,6 @@ from autoprognosis.plugins.prediction.classifiers.helper_calibration import (
     calibrated_model,
 )
 
-
 class LinearSVMPlugin(base.ClassifierPlugin):
     """Classification plugin based on the Linear Support Vector Classification algorithm.
 
@@ -25,9 +24,10 @@ class LinearSVMPlugin(base.ClassifierPlugin):
             Specifies the norm used in the penalization. 0: l1, 1: l2
         calibration: int
             Enable/disable calibration. 0: disabled, 1 : sigmoid, 2: isotonic.
+        C: float, default 1.0
+            Regularization parameter. The strength of the regularization is inversely proportional to C.
         random_state: int, default 0
             Random seed
-
 
     Example:
         >>> from autoprognosis.plugins.prediction import Predictions
@@ -43,6 +43,7 @@ class LinearSVMPlugin(base.ClassifierPlugin):
         self,
         penalty: int = 1,
         calibration: int = 0,
+        C: float = 1.0,          # [修改] 新增 C 參數，預設值 1.0
         model: Any = None,
         random_state: int = 0,
         **kwargs: Any,
@@ -55,6 +56,7 @@ class LinearSVMPlugin(base.ClassifierPlugin):
         model = LinearSVC(
             penalty=LinearSVMPlugin.penalties[penalty],
             dual=False,
+            C=C,                 # [修改] 將 C 傳入 LinearSVC
             max_iter=10000,
             random_state=random_state,
         )
@@ -67,7 +69,12 @@ class LinearSVMPlugin(base.ClassifierPlugin):
     @staticmethod
     def hyperparameter_space(*args: Any, **kwargs: Any) -> List[params.Params]:
         return [
-            params.Integer("penalty", 0, len(LinearSVMPlugin.penalties) - 1),
+            # [修改] penalty 對應 __init__ 的 index，所以使用 Integer 0~1
+            params.Integer("penalty", 0, 1),
+            # [修改] calibration 對應 0, 1, 2
+            params.Integer("calibration", 0, 2),
+            # [修改] 新增 C 的搜尋範圍 (通常建議用 Log Scale)
+            params.Float("C", 1e-3, 100.0),
         ]
 
     def _fit(self, X: pd.DataFrame, *args: Any, **kwargs: Any) -> "LinearSVMPlugin":
@@ -88,7 +95,6 @@ class LinearSVMPlugin(base.ClassifierPlugin):
     @classmethod
     def load(cls, buff: bytes) -> "LinearSVMPlugin":
         model = serialization.load_model(buff)
-
         return cls(model=model)
 
 
