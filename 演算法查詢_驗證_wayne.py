@@ -45,7 +45,7 @@ try:
     from autoprognosis.utils.serialization import save_model_to_file, load_model_from_file
     from autoprognosis.plugins.prediction.classifiers import Classifiers
 except ImportError:
-    print("❌ 找不到 AutoPrognosis，請確認路徑。"); sys.exit(1)
+    print("找不到 AutoPrognosis，請確認路徑。"); sys.exit(1)
 
 warnings.filterwarnings("ignore")
 os.environ['PYTHONWARNINGS'] = 'ignore'
@@ -55,7 +55,7 @@ sns.set(font='Microsoft JhengHei')
 save_dir = os.getcwd()
 
 # ==========================================
-# 3. [核磁共振] 物件深度搜尋引擎
+# 3. 物件深度搜尋引擎，確認該行也算法
 # ==========================================
 
 def get_simple_name(obj):
@@ -242,11 +242,11 @@ def main():
     FORCE_RETRAIN = False 
     
     print("="*60)
-    print(f"   AutoPrognosis 糖尿病預測 (核磁共振版)")
+    print(f"   AutoPrognosis 糖尿病預測")
     print("="*60)
     
     file_path = r"C:\Users\aa803\Downloads\archive\diabetes.csv"
-    if not os.path.exists(file_path): print(f"❌ 找不到: {file_path}"); return
+    if not os.path.exists(file_path): print(f" 找不到: {file_path}"); return
 
     df = pd.read_csv(file_path)
     target = df.columns[8]
@@ -257,13 +257,13 @@ def main():
     model = None
 
     if model_path.exists() and not FORCE_RETRAIN:
-        print(f"\n📂 發現模型：{model_filename}")
-        print("⏩ 直接載入...")
+        print(f"\n 發現模型：{model_filename}")
+        print("直接載入...")
         model = load_model_from_file(model_path)
-        print("✅ 載入成功！")
+        print("載入成功！")
     else:
-        if FORCE_RETRAIN: print(f"\n⚠️  已開啟強制重練...")
-        else: print(f"\n🚀 未發現模型，準備訓練...")
+        if FORCE_RETRAIN: print(f"\n  已開啟強制重練...")
+        else: print(f"\n 未發現模型，準備訓練...")
             
         classifiers = ["xgboost", "random_forest", "logistic_regression", "catboost", "linear_svm"]
         valid_classifiers = [c for c in classifiers if c in Classifiers().list_available()]
@@ -274,7 +274,7 @@ def main():
         sys.stdout = AggressiveFilter(sys.stdout)
         sys.stderr = AggressiveFilter(sys.stderr)
         
-        print("\n🚀 [正式開始] AutoML 搜尋 (約 10 分鐘)...")
+        print("\n [正式開始] AutoML 搜尋 (約 10 分鐘)...")
         TOTAL_TIME_LIMIT = 600
         time_per = int(TOTAL_TIME_LIMIT / len(valid_classifiers))
         
@@ -288,9 +288,9 @@ def main():
         sys.stdout = sys.__stdout__
         sys.stderr = sys.__stderr__
         
-        if model is None: print("❌ 搜尋失敗。"); return
+        if model is None: print(" 搜尋失敗。"); return
         save_model_to_file(model_path, model)
-        print("\n💾 模型已儲存。")
+        print("\n 模型已儲存。")
 
     X_test = test_df.drop(columns=[target])
     y_test = test_df[target]
@@ -302,4 +302,5 @@ def main():
     print_model_details(model)
 
 if __name__ == "__main__":
+
     main()
