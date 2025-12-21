@@ -1,0 +1,126 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    f1_score, roc_auc_score, confusion_matrix, classification_report
+)
+from imblearn.combine import SMOTEENN, SMOTETomek
+from imblearn.over_sampling import SMOTE
+
+df =pd.read_csv("diabetes.csv")
+print(df.head())
+# 假設 Outcome 是 0/1 的糖尿病指標
+print("類別分布：")
+print(df['Outcome'].value_counts())
+print("比例：")
+print(df['Outcome'].value_counts(normalize=True))
+
+# 1. 讀取資料
+# =============================
+X = df.drop("Outcome", axis=1)
+y = df["Outcome"]
+
+# 分割資料
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.3, random_state=42, stratify=y
+)
+
+print("原始訓練資料類別分布：")
+print(y_train.value_counts())
+# =============================================================
+
+# 2. 建立比較模型函式（避免重複代碼）
+# =============================================================
+def evaluate_model(model, X_train, y_train, X_test, y_test):
+    model.fit(X_train, y_train)
+    pred = model.predict(X_test)
+    pred_prob = model.predict_proba(X_test)[:, 1]
+
+    return {
+        "Accuracy": accuracy_score(y_test, pred),
+        "Precision": precision_score(y_test, pred),
+        "Recall": recall_score(y_test, pred),
+        "F1": f1_score(y_test, pred),
+        "ROC-AUC": roc_auc_score(y_test, pred_prob)
+    }
+# =============================================================
+# 3. Baseline：原始資料
+# =============================================================
+rf_raw = RandomForestClassifier(random_state=42)
+result_raw = evaluate_model(rf_raw, X_train, y_train, X_test, y_test)
+# =============================================================
+print("\n===== Baseline（未處理資料不平衡 / Raw）=====")
+print(f"Accuracy : {result_raw['Accuracy']:.4f}")
+print(f"Precision: {result_raw['Precision']:.4f}")
+print(f"Recall   : {result_raw['Recall']:.4f}")
+print(f"F1-score : {result_raw['F1']:.4f}")
+print(f"ROC-AUC  : {result_raw['ROC-AUC']:.4f}")
+# 混淆矩陣
+pred_raw = rf_raw.predict(X_test)
+print("\nConfusion Matrix (Raw):")
+print(confusion_matrix(y_test, pred_raw))
+
+print("\nClassification Report (Raw):")
+print(classification_report(y_test, pred_raw, digits=4))
+
+# 4. 方法 1：SMOTE-ENN
+# =============================================================
+smote_enn = SMOTEENN(random_state=42)
+X_train_enn, y_train_enn = smote_enn.fit_resample(X_train, y_train)
+
+rf_enn = RandomForestClassifier(random_state=42)
+result_enn = evaluate_model(rf_enn, X_train_enn, y_train_enn, X_test, y_test)
+
+# 5. 方法 2：SMOTE + Tomek Links
+# =============================================================
+smt = SMOTETomek(random_state=42)
+X_train_tomek, y_train_tomek = smt.fit_resample(X_train, y_train)
+
+rf_tomek = RandomForestClassifier(random_state=42)
+result_tomek = evaluate_model(rf_tomek, X_train_tomek, y_train_tomek, X_test, y_test)
+
+# 6. 方法 3：class_weight = balanced
+# =============================================================
+rf_weight = RandomForestClassifier(
+    class_weight='balanced',
+    random_state=42
+)
+result_weight = evaluate_model(rf_weight, X_train, y_train, X_test, y_test)
+
+# 7. 結果比較表
+# =============================================================
+results = pd.DataFrame({
+    "Original": result_raw,
+    "SMOTE-ENN": result_enn,
+    "SMOTE+Tomek": result_tomek,
+    "Class Weight": result_weight
+})
+
+print("\n========== 各方法比較結果 ==========")
+print(results.T)
+
+X = df.drop("Outcome", axis=1)
+y = df["Outcome"]
+
+# SMOTE-ENN
+smote_enn = SMOTEENN(random_state=42)
+X_res, y_res = smote_enn.fit_resample(X, y)
+
+# 合併成新的 DataFrame
+df_resampled = pd.concat([pd.DataFrame(X_res, columns=X.columns),
+                          pd.DataFrame(y_res, columns=["Outcome"])],
+                         axis=1)
+
+print("=== SMOTE-ENN 處理後的資料集前 10 筆 ===")
+print(df_resampled.head(10))
+
+print("\n=== 處理後新的類別分布 ===")
+print(df_resampled['Outcome'].value_counts().reset_index().rename(
+    columns={'index':'Class', 'Outcome':'Count'}
+))
+print("比例：")
+print(df_resampled['Outcome'].value_counts(normalize=True))
+print("\n=== 新資料集大小 ===")
+print(df_resampled.shape)
